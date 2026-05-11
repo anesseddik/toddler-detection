@@ -1,0 +1,18 @@
+# Dataset (too large for git)
+dataset/
+adult_negatives/
+plots/
+
+# Training outputs
+runs/
+
+# Model weights
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Report output
+toddler_detection_report.pdf
