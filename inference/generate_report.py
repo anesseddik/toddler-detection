@@ -1,15 +1,20 @@
 """
 YOLOv8 Toddler Detection - PDF Report Generator
 Run: pip install fpdf2
-Then: python generate_report.py
-Plots (optional): unzip plots.zip from Google Drive into C:/pfe/plots/
+Then: python inference/generate_report.py
+Plots (optional): unzip plots.zip from Google Drive into <project_root>/plots/
 """
-from fpdf import FPDF
-from pathlib import Path
-from datetime import date
 
-PLOTS_DIR = Path("C:/pfe/plots")
-OUTPUT    = Path("C:/pfe/toddler_detection_report.pdf")
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fpdf import FPDF
+from datetime import date
+from config import PLOTS_DIR, REPORTS_DIR
+
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT = REPORTS_DIR / "toddler_detection_report.pdf"
 
 
 class Report(FPDF):
@@ -50,14 +55,12 @@ class Report(FPDF):
         self.multi_cell(125, 6, value)
 
     def table(self, headers, rows, col_widths):
-        # Header row
         self.set_font("Helvetica", "B", 9)
         self.set_fill_color(50, 50, 50)
         self.set_text_color(255, 255, 255)
         for i, h in enumerate(headers):
             self.cell(col_widths[i], 7, h, border=1, align="C", fill=True)
         self.ln()
-        # Data rows
         self.set_font("Helvetica", "", 9)
         for ri, row in enumerate(rows):
             self.set_fill_color(245, 245, 245 if ri % 2 == 0 else 255)
@@ -86,12 +89,12 @@ class Report(FPDF):
             self.ln(2)
 
 
-# ── Build PDF ────────────────────────────────────────────────────────────────
+# ── Build PDF ─────────────────────────────────────────────────────────────────
 pdf = Report(orientation="P", unit="mm", format="A4")
 pdf.set_auto_page_break(auto=True, margin=15)
 pdf.add_page()
 
-# ── TITLE PAGE ───────────────────────────────────────────────────────────────
+# ── TITLE PAGE ────────────────────────────────────────────────────────────────
 pdf.ln(25)
 pdf.set_font("Helvetica", "B", 26)
 pdf.set_text_color(20, 20, 20)
@@ -116,7 +119,7 @@ pdf.multi_cell(0, 7,
     align="C"
 )
 
-# ── 1. PROJECT OVERVIEW ──────────────────────────────────────────────────────
+# ── 1. PROJECT OVERVIEW ───────────────────────────────────────────────────────
 pdf.add_page()
 pdf.section_title("1. Project Overview")
 pdf.body(
@@ -135,13 +138,11 @@ pdf.kv("Detection class",     "toddler (single class, id=0)")
 pdf.kv("Dataset format",      "YOLO format (.jpg images + .txt labels: class cx cy w h)")
 pdf.kv("Hard neg. source 1",  "Roboflow - Children vs Adults (workspace: a-4euhx, version 4)")
 pdf.kv("Hard neg. source 2",  "Custom - adult-only video frames extracted locally")
-pdf.kv("Inference",           "detect.py - supports video file, image, or webcam (conf=0.4)")
+pdf.kv("Inference",           "inference/detect.py - supports video file, image, or webcam (conf=0.4)")
 
-# ── 2. DATASET ───────────────────────────────────────────────────────────────
+# ── 2. DATASET ────────────────────────────────────────────────────────────────
 pdf.section_title("3. Dataset Preparation")
-pdf.body(
-    "The dataset was prepared in three stages before the final training run:"
-)
+pdf.body("The dataset was prepared in three stages before the final training run:")
 pdf.body(
     "Stage 1 - Re-split (70 / 15 / 15)\n"
     "All images and labels were pooled together and randomly re-split using seed=42 into "
@@ -173,7 +174,7 @@ pdf.table(
     col_widths=[35, 45, 55, 55]
 )
 
-# ── 3. TRAINING CONFIGURATION ────────────────────────────────────────────────
+# ── 3. TRAINING CONFIGURATION ─────────────────────────────────────────────────
 pdf.section_title("4. Training Configuration")
 pdf.table(
     headers=["Parameter", "Value"],
@@ -194,7 +195,7 @@ pdf.table(
     col_widths=[65, 125]
 )
 
-# ── 4. TRAINING ITERATIONS ───────────────────────────────────────────────────
+# ── 4. TRAINING ITERATIONS ────────────────────────────────────────────────────
 pdf.section_title("5. Training Iterations & Results")
 pdf.table(
     headers=["Run", "Description", "Val mAP50", "Test mAP50", "Test mAP50-95"],
@@ -214,7 +215,7 @@ pdf.body(
     "while keeping test accuracy stable at 0.951."
 )
 
-# ── 5. FINAL RESULTS ─────────────────────────────────────────────────────────
+# ── 5. FINAL RESULTS ──────────────────────────────────────────────────────────
 pdf.section_title("6. Final Model Results (Run 4 - best.pt)")
 pdf.table(
     headers=["Metric", "Value"],
@@ -232,7 +233,7 @@ pdf.table(
     col_widths=[90, 100]
 )
 
-# ── 6. PROBLEMS & SOLUTIONS ──────────────────────────────────────────────────
+# ── 6. PROBLEMS & SOLUTIONS ───────────────────────────────────────────────────
 pdf.section_title("7. Problems Encountered & Solutions")
 pdf.table(
     headers=["Problem", "Root Cause", "Solution"],
@@ -253,38 +254,44 @@ pdf.table(
     col_widths=[50, 70, 70]
 )
 
-# ── 7. PROJECT FILES ─────────────────────────────────────────────────────────
+# ── 7. PROJECT FILES ──────────────────────────────────────────────────────────
 pdf.section_title("8. Project Files")
 pdf.table(
     headers=["File", "Description"],
     rows=[
-        ["train_colab.ipynb",               "Google Colab training notebook (10 cells)"],
-        ["train.py",                         "Local training script (CPU / Windows-safe)"],
-        ["detect.py",                        "Inference script - video / image / webcam"],
-        ["extract_hard_negatives.py",        "Extracts frames from video as hard negatives"],
-        ["prepare_dataset.py",               "One-time 80/20 train/val split utility"],
-        ["dataset/detect_child/data.yaml",   "YOLO dataset configuration file"],
-        ["toddler_detect_s100_best.pt",      "Final model weights - 22.5 MB"],
-        ["adult_negatives/",                 "Custom adult hard negative frames"],
+        ["config.py",                              "Central path configuration (project root)"],
+        ["notebooks/train_colab.ipynb",            "Google Colab training notebook (10 cells)"],
+        ["training/train_detect.py",               "Local detection training script (CPU / Windows-safe)"],
+        ["training/train_pose.py",                 "Local pose training script (SyRIP dataset)"],
+        ["inference/detect.py",                    "Inference script - video / image / webcam"],
+        ["inference/generate_report.py",           "This report generator"],
+        ["data/prepare_dataset.py",                "One-time 80/20 train/val split utility"],
+        ["data/extract_hard_negatives.py",         "Extracts frames from video as hard negatives"],
+        ["data/download_syrip.py",                 "Downloads the SyRIP infant pose dataset"],
+        ["data/convert_syrip_to_yolo.py",          "Converts SyRIP COCO keypoints to YOLO pose format"],
+        ["models/toddler_detect_s100_best.pt",     "Final detection model weights - 22.5 MB"],
+        ["dataset/detect_child/data.yaml",         "YOLO detection dataset configuration"],
+        ["dataset/pose_child/data.yaml",           "YOLO pose dataset configuration"],
+        ["adult_negatives/",                       "Custom adult hard negative frames"],
     ],
     col_widths=[75, 115]
 )
 
-# ── 8. PLOTS ─────────────────────────────────────────────────────────────────
+# ── 8. PLOTS ──────────────────────────────────────────────────────────────────
 pdf.add_page()
 pdf.section_title("9. Training Plots")
 pdf.body(
     "The following plots were generated by Ultralytics during training and saved to "
     "/content/runs/toddler_detect_s100/ on Google Colab.\n"
-    "To include them: unzip plots.zip from Google Drive into C:/pfe/plots/"
+    "To include them: unzip plots.zip from Google Drive into <project_root>/plots/"
 )
 
-pdf.insert_plot("results.png",            "Figure 1 - Training & Validation Curves (loss, mAP50, mAP50-95)")
+pdf.insert_plot("results.png",                     "Figure 1 - Training & Validation Curves (loss, mAP50, mAP50-95)")
 pdf.insert_plot("confusion_matrix_normalized.png", "Figure 2 - Confusion Matrix (Normalized)")
-pdf.insert_plot("PR_curve.png",           "Figure 3 - Precision-Recall Curve")
-pdf.insert_plot("F1_curve.png",           "Figure 4 - F1-Confidence Curve")
-pdf.insert_plot("labels.jpg",             "Figure 5 - Label Distribution & Bounding Box Statistics")
+pdf.insert_plot("PR_curve.png",                    "Figure 3 - Precision-Recall Curve")
+pdf.insert_plot("F1_curve.png",                    "Figure 4 - F1-Confidence Curve")
+pdf.insert_plot("labels.jpg",                      "Figure 5 - Label Distribution & Bounding Box Statistics")
 
-# ── SAVE ─────────────────────────────────────────────────────────────────────
+# ── SAVE ──────────────────────────────────────────────────────────────────────
 pdf.output(str(OUTPUT))
 print(f"Report saved to: {OUTPUT}")

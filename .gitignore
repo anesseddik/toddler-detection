@@ -2,17 +2,30 @@
 dataset/
 adult_negatives/
 plots/
+syrip_raw/
 
 # Training outputs
 runs/
 
-# Model weights
+# Model weights (directory + any stray .pt files)
+models/
 *.pt
+
+# Generated reports
+reports/
+
+# Logs
+*.txt
+*.log
+
+# Archives (raw data)
+*.zip
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 
-# Report output
-toddler_detection_report.pdf
+# IDE / tooling
+.vscode/
+.claude/
