@@ -143,6 +143,14 @@ notebooks/
 
 models/
   toddler_detect_s100_best.pt    — final detection model (21.5 MB)
+
+reports/
+  toddler_detection_report.pdf   — PDF report (14 sections, fpdf2)
+  toddler_detection_report.docx  — Word report (same content, python-docx)
+
+runs/
+  track_pose/                    — annotated output from full pipeline runs
+  test_results/                  — annotated output from FP testing (incl. IMG_3638/)
 ```
 
 ---
