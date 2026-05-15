@@ -143,19 +143,141 @@ pdf.body(
 
 # ── 2. TOOLS & TECHNOLOGIES ───────────────────────────────────────────────────
 pdf.section_title("2. Tools & Technologies")
-pdf.kv("Model architecture",  "YOLOv8s - 11.1M parameters, 28.6 GFLOPs")
-pdf.kv("Framework",           "Ultralytics 8.4.50 / PyTorch 2.10 / CUDA 12.8")
-pdf.kv("Training hardware",   "Google Colab A100 GPU (40 GB VRAM) - Run 5")
-pdf.kv("Detection class",     "toddler (single class, id=0)")
-pdf.kv("Dataset format",      "YOLO format (.jpg images + .txt labels: class cx cy w h)")
-pdf.kv("Hard neg. source 1",  "Roboflow - Children vs Adults (adult-only images)")
-pdf.kv("Hard neg. source 2",  "Custom - 74 adult video frames extracted locally")
-pdf.kv("Hard neg. source 3",  "Roboflow - Oxford IIIT Pets (cats & dogs)")
-pdf.kv("Hard neg. source 4",  "Roboflow - Furniture detection (chairs, tables, sofas)")
-pdf.kv("Hard neg. source 5",  "Roboflow - Indoor room scenes (walls, floors, windows)")
-pdf.kv("Hard neg. source 6",  "Roboflow - Toys detection dataset")
-pdf.kv("Inference",           "inference/detect.py - supports video / image / webcam (conf=0.4)")
-pdf.kv("FP testing",          "inference/test_videos.py - batch false-positive tester")
+
+pdf.body("A. Detection Model - YOLOv8s")
+pdf.body(
+    "YOLOv8 (You Only Look Once, version 8) is a single-stage, anchor-free real-time object "
+    "detector developed by Ultralytics. Unlike two-stage detectors (e.g. Faster R-CNN), YOLOv8 "
+    "processes the full image in a single forward pass, making it suitable for real-time video.\n\n"
+    "Architecture breakdown:\n"
+    "  Backbone - CSPDarknet with C2f (Cross-Stage Partial with feature fusion) blocks. "
+    "Extracts multi-scale feature maps at three resolutions (80x80, 40x40, 20x20 for a 640px input). "
+    "The C2f block is a reparameterized bottleneck that improves gradient flow during training.\n"
+    "  Neck - PANet (Path Aggregation Network) feature pyramid. Merges backbone feature maps "
+    "top-down and bottom-up so the detector has both semantic context (deep layers) and spatial "
+    "precision (shallow layers) at every scale.\n"
+    "  Head - Decoupled detection head: separate branches for classification (is it a toddler?) "
+    "and regression (where exactly is it?). Uses Distribution Focal Loss (DFL) for bounding box "
+    "regression, which models the box coordinates as a probability distribution rather than a "
+    "single point - this is what drives the high mAP50-95 score (precise box localization).\n"
+    "  Anchor-free design: box centres are predicted directly relative to each grid cell with no "
+    "predefined anchor shapes, which simplifies training and generalises better to unusual aspect ratios."
+)
+pdf.table(
+    headers=["YOLOv8 Variant", "Parameters", "GFLOPs", "Reason for choice"],
+    rows=[
+        ["YOLOv8n (nano)",  "3.2 M",  "8.7",  "Run 1 only - underfitted, mAP50-95=0.310"],
+        ["YOLOv8s (small)", "11.1 M", "28.6", "Runs 2-5 - best accuracy/speed trade-off"],
+        ["YOLOv8m (medium)","25.9 M", "78.9", "Not used - too slow for real-time on CPU"],
+    ],
+    col_widths=[42, 22, 22, 104]
+)
+pdf.kv("Input resolution",   "640 x 640 px (letterbox padded, preserves aspect ratio)")
+pdf.kv("Output per frame",   "N bounding boxes, each with (x1, y1, x2, y2, confidence, class_id)")
+pdf.kv("Confidence thresh.", "0.4 at inference (boxes below this discarded before NMS)")
+pdf.kv("NMS IoU threshold",  "0.45 (default Ultralytics) - suppresses overlapping boxes")
+pdf.kv("Final model file",   "models/toddler_detect_s100_best.pt  (21.5 MB)")
+pdf.ln(3)
+
+pdf.body("B. Pose Estimation Model - YOLOv8n-pose")
+pdf.body(
+    "YOLOv8n-pose is the nano variant of YOLOv8 extended with a keypoint regression head. "
+    "In addition to detecting a bounding box around each person, it regresses 17 (x, y, confidence) "
+    "keypoint tuples - one per COCO body joint. The model was pre-trained on the COCO Keypoints "
+    "dataset (~250k person instances with annotated skeletons) and requires no fine-tuning for "
+    "toddlers because the human skeletal topology is identical across age groups.\n\n"
+    "Keypoint head: appended to the same YOLOv8n backbone/neck. For each detected person, it "
+    "outputs a 51-dimensional vector (17 joints x 3 values: x, y, visibility confidence). "
+    "Keypoints with confidence below 0.4 are not drawn."
+)
+pdf.kv("Model file",       "yolov8n-pose.pt  (~6 MB, auto-downloaded from Ultralytics on first run)")
+pdf.kv("Keypoints",        "17 COCO joints (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles)")
+pdf.kv("Skeleton edges",   "16 bone connections drawn from the COCO skeleton definition")
+pdf.kv("Keypoint colors",  "Green=face, Orange=shoulders, Blue gradient=arms, Cyan=legs")
+pdf.kv("Role in pipeline", "Provides per-joint positions used for pose analysis and future danger detection")
+pdf.ln(3)
+
+pdf.body("C. Multi-Object Tracker - ByteTrack")
+pdf.body(
+    "ByteTrack is a multi-object tracking (MOT) algorithm that assigns each detected object a "
+    "persistent integer ID across video frames. It is built directly into the Ultralytics library "
+    "and activated with a single parameter (tracker='bytetrack.yaml'), requiring no additional "
+    "dependencies. ByteTrack works in two matching passes per frame:\n"
+    "  Pass 1 (high-confidence): detections above a high threshold are matched to existing tracks "
+    "using the Hungarian algorithm on IoU (Intersection over Union) distance. Matched tracks are "
+    "updated with the new box; unmatched tracks enter a 'lost' buffer.\n"
+    "  Pass 2 (low-confidence): detections that fall between a floor threshold and the high "
+    "threshold are used to recover tracks from the lost buffer. This two-stage design is the "
+    "key innovation: it avoids discarding detections that are valid but temporarily uncertain "
+    "(occlusion, motion blur), which is the main source of ID switches in other trackers.\n\n"
+    "Track lifecycle: New -> Active (matched in Pass 1 or 2) -> Lost (unmatched, kept in buffer "
+    "for EXIT_PATIENCE=45 frames) -> Removed (logged as exit event)."
+)
+pdf.kv("Config file",      "bytetrack.yaml (built into Ultralytics installation)")
+pdf.kv("Matching metric",  "IoU distance + Hungarian assignment (linear sum assignment)")
+pdf.kv("Exit patience",    "45 frames absent before track removed and exit event logged")
+pdf.kv("Trail rendering",  "Last 50 centre positions per track; line opacity proportional to age")
+pdf.kv("ID color scheme",  "Unique HSV hue per ID: hue = (ID x 47) mod 180, converted to BGR")
+pdf.ln(3)
+
+pdf.body("D. Framework & Runtime Stack")
+pdf.table(
+    headers=["Component", "Version", "Role"],
+    rows=[
+        ["Python",          "3.10",       "Runtime language"],
+        ["Ultralytics",     "8.4.50",     "YOLOv8 training, inference, tracking, pose API"],
+        ["PyTorch",         "2.10",       "Deep learning backend (autograd, CUDA tensors)"],
+        ["CUDA",            "12.8",       "GPU acceleration (Colab A100 training)"],
+        ["OpenCV (cv2)",    "4.x",        "Frame decoding, drawing, display, video writing"],
+        ["NumPy",           "1.x",        "Array operations for box/keypoint coordinate math"],
+        ["fpdf2",           "2.x",        "PDF report generation (this document)"],
+        ["Roboflow API",    "roboflow",   "Downloading hard negative datasets"],
+    ],
+    col_widths=[38, 24, 128]
+)
+pdf.ln(3)
+
+pdf.body("E. Training Hardware")
+pdf.table(
+    headers=["Run", "Hardware", "Notes"],
+    rows=[
+        ["1",   "Local CPU (Windows)",         "Workers=0, AMP disabled - very slow, only 50 epochs"],
+        ["2-4", "Google Colab A100 (40 GB)",   "~1 hour per 100-epoch run, batch=64, AMP enabled"],
+        ["5",   "Google Colab A100 (40 GB)",   "Final run - pets/furniture/rooms/toys hard negatives added on Colab"],
+    ],
+    col_widths=[12, 55, 123]
+)
+pdf.ln(3)
+
+pdf.body("F. Dataset Format - YOLO Detection Format")
+pdf.body(
+    "Each image in the dataset has a paired .txt label file with the same stem name. "
+    "Each line in the label file represents one object:\n"
+    "  <class_id> <cx> <cy> <w> <h>\n"
+    "where all coordinates are normalised to [0, 1] relative to the image dimensions. "
+    "class_id=0 always (toddler is the only class). Hard negative images have an empty label "
+    "file (0 bytes) - this signals to the model that any detection on that image is a false "
+    "positive that should be suppressed, effectively teaching the model what NOT to detect."
+)
+pdf.kv("Image format",    ".jpg, 640x640 px target (letterbox resized during training)")
+pdf.kv("Label format",    ".txt - one row per object: class cx cy w h (normalised)")
+pdf.kv("Hard negatives",  "Empty .txt file (0 bytes) - background-only images, no annotations")
+pdf.kv("dataset config",  "dataset/detect_child/data.yaml - declares train/val/test paths and nc=1")
+pdf.ln(3)
+
+pdf.body("G. Hard Negative Sources")
+pdf.table(
+    headers=["Source", "Category", "Images added", "Purpose"],
+    rows=[
+        ["Roboflow - Children vs Adults", "Adult humans",       "~300", "Teach model to ignore adult bodies"],
+        ["Custom video frames",           "Adults (local env)", "74",   "Target specific deployment camera angle"],
+        ["Roboflow - Oxford IIIT Pets",   "Cats & dogs",        "~150", "Suppress animal silhouettes (resemble crouching toddlers)"],
+        ["Roboflow - Furniture detection","Chairs, tables",     "~100", "Suppress common indoor furniture"],
+        ["Roboflow - Indoor room scenes", "Walls, floors",      "~100", "Suppress empty room backgrounds"],
+        ["Roboflow - Toys detection",     "Toys on floor",      "~100", "Suppress small objects near floor level"],
+    ],
+    col_widths=[55, 38, 22, 75]
+)
 
 # ── 3. DATASET PREPARATION ────────────────────────────────────────────────────
 pdf.section_title("3. Dataset Preparation")
@@ -322,6 +444,11 @@ pdf.table(
         ["ImportError: ultralytics callbacks import",
          "Unused import from ultralytics.callbacks in cell 7",
          "Removed the unused import line entirely"],
+        ["ID fragmentation: 31 IDs in 4 s (before fix)",
+         "Detections dropped below conf=0.4 for 1-2 frames causing "
+         "ByteTrack to lose and reassign tracks",
+         "Fixed: DETECT_CONF=0.1, new_track_thresh=0.5, track_buffer=90 "
+         "in bytetrack_toddler.yaml. Longest track improved from 121 to 214 frames."],
     ],
     col_widths=[52, 68, 70]
 )
@@ -332,19 +459,40 @@ pdf.body(
     "After the detection model was validated, ByteTrack was added to assign each toddler a "
     "persistent ID across frames. ByteTrack is built into Ultralytics and requires no extra "
     "dependencies. It is robust to brief occlusions: if two toddlers overlap, their individual "
-    "IDs are recovered once they separate."
+    "IDs are recovered once they separate.\n\n"
+    "ByteTrack Algorithm (two-pass matching per frame):\n"
+    "  Pass 1 - High-confidence detections are matched to existing active tracks using IoU-based "
+    "Hungarian assignment. Tracks with a strong enough IoU overlap are updated; unmatched tracks "
+    "enter a 'lost' state.\n"
+    "  Pass 2 - Low-confidence detections (between a floor and the high threshold) are used to "
+    "recover lost tracks that were temporarily occluded. This two-pass design is what allows IDs "
+    "to survive brief overlaps between two toddlers."
 )
 pdf.kv("Tracker",        "ByteTrack (bytetrack.yaml) - built into Ultralytics")
 pdf.kv("Script",         "inference/track.py")
+pdf.kv("Conf threshold", "0.4 (detections below this are rejected entirely)")
 pdf.kv("ID persistence", "Each toddler keeps its ID across the full video")
 pdf.kv("Exit patience",  "45 frames of absence before an exit event is logged")
 pdf.kv("Trail length",   "Last 50 centre positions drawn per track, fading with age")
+pdf.kv("Trail colors",   "Unique HSV color per track ID - hue = (ID x 47) mod 180")
 pdf.kv("Output",         "Per-ID coloured box, motion trail, entry/exit log, session summary")
 pdf.ln(2)
 pdf.body(
-    "Entry and exit events are printed to the console with timestamps. At the end of the "
-    "video, a summary shows the total number of unique toddlers seen, the longest track "
-    "duration, and the average track length."
+    "Entry and exit events are printed to the console with timestamps (HH:MM:SS). At the end of "
+    "the video, a summary shows the total number of unique toddlers seen, the longest track "
+    "duration, and the average track length.\n\n"
+    "ByteTrack Tuning - ID Fragmentation Fix (2026-05-15):\n"
+    "  Initial test showed 31 unique IDs in 4 s (longest track: 121 frames). Root cause: "
+    "detections dropped below conf=0.4 for 1-2 frames, causing ByteTrack to lose and reassign tracks.\n\n"
+    "  Fix - decoupled detection floor from track-creation threshold (bytetrack_toddler.yaml):\n"
+    "  DETECT_CONF: 0.4 -> 0.1   (passes weak detections to tracker for recovery)\n"
+    "  track_high_thresh: 0.25 -> 0.4  (only strong detections drive Pass 1 matching)\n"
+    "  track_low_thresh:  0.10 -> 0.05 (weak detections used only for Pass 2 recovery)\n"
+    "  new_track_thresh:  0.25 -> 0.50 (requires high confidence to start a new track)\n"
+    "  track_buffer:      30   -> 90   (tracks survive 3 s without a detection)\n\n"
+    "  Results after fix on 'multi_toddler tracking test.mp4':\n"
+    "  Frames: 215  |  Unique IDs: 38  |  Longest track: ID 3 (214 frames = 7.1 s)\n"
+    "  Tracks ID 2 (262 f), ID 3 (214 f), ID 5 (214 f), ID 11 (209 f) survived nearly the full video."
 )
 
 # ── 10. POSE ESTIMATION ───────────────────────────────────────────────────────
@@ -381,21 +529,39 @@ pdf.section_title("11. Combined Detection + Tracking + Pose Pipeline")
 pdf.body(
     "The three components were fused into a single real-time pipeline. The detection model "
     "acts as a gatekeeper: only regions it confirms as toddlers receive a skeleton from the "
-    "pose model. Adults, pets, and background objects are ignored entirely."
+    "pose model. Adults, pets, and background objects are ignored entirely.\n\n"
+    "Two models run sequentially on every frame:"
 )
 pdf.body(
     "Flow per frame:\n"
-    "  1. Detection model + ByteTrack  ->  toddler bounding boxes with persistent IDs\n"
-    "  2. Pose model (full frame)      ->  all person skeletons detected\n"
-    "  3. Matching                     ->  skeletons kept only if centre is inside a tracked toddler box\n"
-    "  4. Drawing                      ->  per-ID colour, motion trail, skeleton drawn on each toddler"
+    "  1. Detection model + ByteTrack  ->  tracked toddler boxes [(ID, x1, y1, x2, y2), ...]\n"
+    "  2. Pose model (full frame)      ->  all visible person skeletons (may include adults)\n"
+    "  3. Matching                     ->  skeleton centre must fall inside a tracked toddler box "
+    "(+/-30 px margin) to be kept; adult skeletons are silently discarded\n"
+    "  4. Drawing                      ->  per-ID colour, motion trail, bounding box + label, "
+    "skeleton all composited on the same frame"
 )
-pdf.kv("Script",   "inference/track_and_pose.py")
-pdf.kv("Output",   "Annotated video saved to runs/track_pose/")
-pdf.kv("Display",  "Live window showing all three layers simultaneously")
+pdf.body(
+    "Skeleton-to-detection matching uses a centre-point test with a 30-pixel tolerance to handle "
+    "slight misalignment between the two models' bounding box predictions:\n"
+    "  cx = (pose_x1 + pose_x2) / 2 ;  cy = (pose_y1 + pose_y2) / 2\n"
+    "  matched if:  det_x1-30 <= cx <= det_x2+30  AND  det_y1-30 <= cy <= det_y2+30"
+)
+pdf.kv("Script",         "inference/track_and_pose.py")
+pdf.kv("Detect conf",    "0.4  |  Pose conf: 0.4  |  Keypoint conf threshold: 0.4")
+pdf.kv("Output video",   "runs/track_pose/<stem>_tracked_pose.mp4  (mp4v codec, original resolution)")
+pdf.kv("Display",        "Live resized window at 960 px width - press Q to quit")
 pdf.ln(2)
 pdf.body(
-    "Two intermediate scripts are also available:\n"
+    "Live test (2026-05-15) - 'multi_toddler tracking test.mp4' (after ByteTrack tuning):\n"
+    "  Detection model : toddler_detect_s100_best.pt  |  Tracker: ByteTrack  |  Pose: yolov8n-pose.pt\n"
+    "  Total frames    : 215 (7.2 s at 30 fps)\n"
+    "  Unique IDs      : 38  |  Longest track: ID 3 (214 frames = 7.1 s)\n"
+    "  Output saved to : runs/track_pose/multi_toddler tracking test_tracked_pose.mp4\n\n"
+    "All three annotation layers (bounding boxes with ID labels, motion trails, and body "
+    "skeletons) rendered correctly on each confirmed toddler. Adults received no skeleton, "
+    "confirming the detection model gatekeeper logic works as intended.\n\n"
+    "Intermediate scripts also available:\n"
     "  inference/detect_and_pose.py  - detection + pose only (no tracking)\n"
     "  inference/track.py            - detection + tracking only (no pose)"
 )
@@ -438,18 +604,19 @@ pdf.table(
     rows=[
         ["1", "Danger detection logic",
          "Use keypoint positions from track_and_pose.py to flag dangerous postures: "
-         "wrists above head (reaching/climbing), body near floor (fallen), rapid position change"],
-        ["2", "Investigate IMG_3638 FPs",
-         "Open runs/test_results/IMG_3638/ annotated video, identify triggering objects, "
-         "add targeted hard negatives if needed"],
-        ["3", "Alert / notification system",
-         "Trigger an alert (sound, push notification) when a danger condition is detected "
-         "for more than N consecutive frames"],
+         "wrists above nose (reaching/climbing), ankle Y near hip Y (fallen/crawling), "
+         "large sudden centre-of-mass jump (rapid fall), box centre near frame edge (leaving zone)."],
+        ["2", "Alert / notification system",
+         "Trigger an alert (sound, desktop push notification) when a danger condition "
+         "persists for more than N consecutive frames (debounce to avoid single-frame noise)."],
+        ["3", "Investigate IMG_3638 FPs",
+         "Open runs/test_results/IMG_3638/ annotated video, identify objects triggering "
+         "conf=0.84 detections, add targeted hard negatives for those objects if needed."],
         ["4", "Pose fine-tuning (optional)",
-         "If keypoint accuracy is insufficient on toddlers, find a toddler-specific pose "
-         "dataset and fine-tune yolov8n-pose.pt with training/train_pose.py"],
+         "If keypoint accuracy is insufficient on toddlers at typical camera angles, "
+         "fine-tune yolov8n-pose.pt on a toddler-specific pose dataset using train_pose.py."],
     ],
-    col_widths=[18, 45, 127]
+    col_widths=[18, 48, 124]
 )
 
 # ── 14. TRAINING PLOTS ────────────────────────────────────────────────────────

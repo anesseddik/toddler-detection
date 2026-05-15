@@ -1,0 +1,16 @@
+# ByteTrack config tuned for toddler tracking
+#
+# Strategy: decouple track recovery from track creation.
+#   - DETECT_CONF in scripts = 0.1  -> all detections reach the tracker
+#   - track_high_thresh = 0.4       -> only confident detections do Pass 1 (main match)
+#   - track_low_thresh  = 0.05      -> weak detections used ONLY for Pass 2 (recovery)
+#   - new_track_thresh  = 0.5       -> new tracks require high confidence (blocks false positives)
+#   - track_buffer      = 90        -> lost track kept alive for 3 s at 30 fps
+
+tracker_type: bytetrack
+track_high_thresh: 0.4   # Pass 1 threshold (confident detections -> main matching)
+track_low_thresh:  0.05  # Pass 2 threshold (weak detections -> lost track recovery only)
+new_track_thresh:  0.5   # minimum conf to START a brand-new track (prevents FP tracks)
+track_buffer:      90    # frames a lost track stays alive (was 30 = 1 s, now 3 s)
+match_thresh:      0.8   # IoU similarity threshold for Hungarian assignment
+fuse_score:        True  # fuse detection score with IoU for matching

@@ -20,10 +20,11 @@ from ultralytics import YOLO
 from config import FINAL_DETECT_MODEL
 
 SOURCE        = sys.argv[1] if len(sys.argv) > 1 else "0"
-CONF          = 0.4
+CONF          = 0.1   # low floor so tracker receives weak detections for track recovery
 TRAIL_LEN     = 50    # number of past positions to draw per track
-EXIT_PATIENCE = 45    # frames absent before an exit event is logged
+EXIT_PATIENCE = 90    # frames absent before an exit event is logged (matches track_buffer)
 DISPLAY_WIDTH = 960
+TRACKER_CFG   = str(Path(__file__).resolve().parents[1] / "bytetrack_toddler.yaml")
 
 model = YOLO(str(FINAL_DETECT_MODEL))
 
@@ -58,7 +59,7 @@ print(f"{'─' * 55}")
 for r in model.track(
     source=SOURCE,
     conf=CONF,
-    tracker="bytetrack.yaml",
+    tracker=TRACKER_CFG,
     persist=True,
     stream=True,
     save=True,

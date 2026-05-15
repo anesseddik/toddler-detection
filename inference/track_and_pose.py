@@ -27,12 +27,13 @@ from ultralytics import YOLO
 from config import FINAL_DETECT_MODEL, RUNS_DIR
 
 SOURCE        = sys.argv[1] if len(sys.argv) > 1 else "0"
-DETECT_CONF   = 0.4
+DETECT_CONF   = 0.1   # low floor so tracker receives weak detections for track recovery
 POSE_CONF     = 0.4
 KP_CONF_THR   = 0.4
 TRAIL_LEN     = 50
-EXIT_PATIENCE = 45
+EXIT_PATIENCE = 90    # frames absent before an exit event is logged (matches track_buffer)
 DISPLAY_WIDTH = 960
+TRACKER_CFG   = str(Path(__file__).resolve().parents[1] / "bytetrack_toddler.yaml")
 
 detect_model = YOLO(str(FINAL_DETECT_MODEL))
 pose_model   = YOLO("yolov8n-pose.pt")
@@ -125,7 +126,7 @@ print(f"{'─' * 55}")
 for r in detect_model.track(
     source=SOURCE,
     conf=DETECT_CONF,
-    tracker="bytetrack.yaml",
+    tracker=TRACKER_CFG,
     persist=True,
     stream=True,
     save=False,
