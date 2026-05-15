@@ -7,9 +7,17 @@
 ### 1. Detection Model
 - Fine-tuned YOLOv8s on a custom toddler detection dataset (single class: toddler)
 - 5 training runs, each improving on the last
-- **Final model (Run 5):** `models/toddler_detect_s100_best.pt`
-  - Test mAP50: **0.959** | Test mAP50-95: **0.575**
+- **Final model (Run 5):** `models/toddler_detect_s100_best.pt` — best.pt = epoch 89 (peak val mAP50)
   - Trained on Google Colab A100, 100 epochs, batch=64
+
+| Metric | Value |
+|--------|-------|
+| Precision | **94.47%** |
+| Recall | **93.30%** |
+| F1 Score | **93.88%** |
+| mAP50 (val, epoch 89) | **96.53%** |
+| mAP50 (test) | **95.90%** |
+| mAP50-95 (test) | **57.50%** |
 
 | Run | Description | Val mAP50 | Test mAP50 | Test mAP50-95 |
 |-----|-------------|-----------|------------|---------------|
@@ -89,8 +97,9 @@ Result on `multi_toddler tracking test.mp4`:
 - `inference/generate_report_word.py` — Word report generator (python-docx), same content
 - Generated at `reports/toddler_detection_report.pdf` and `reports/toddler_detection_report.docx`
 - Sections: overview, tools & technologies (detailed), dataset, training config, 5-run history,
-  final results, FP testing, problems/solutions, tracking, pose, combined pipeline,
-  project structure, next steps, training plots
+  final results (precision/recall/F1 + best.pt explanation), FP testing, problems/solutions,
+  tracking (ByteTrack tuning), pose, combined pipeline, project structure, next steps,
+  training plots (15 figures: loss curves, confusion matrices, P/R/F1/PR curves, train & val batches)
 
 ---
 
